@@ -59,6 +59,10 @@ The QR image is written to `qqmusic-login.png`, and a browser-friendly `qqmusic-
 
 This is a server-side shared login. All players use the same QQ account capability. VIP, copyright, and region checks still apply to that account.
 
+### Re-initiating the QR flow
+
+The QR login flow otherwise only starts automatically at provider startup, and the QR code expires after `qrLoginTimeoutSeconds`. To start a new flow without restarting the server, create a `qqmusic-relogin` file next to `qqmusic.json` (e.g. `touch qqmusic-relogin`). A watcher thread deletes the trigger file and re-runs the QR login, regenerating `qqmusic-login.html` / `qqmusic-login.png`. The trigger works even when a login cookie is already configured, which allows renewing an expired login without editing `qqmusic.json`.
+
 ## Quality
 
 The provider tries qualities in order:

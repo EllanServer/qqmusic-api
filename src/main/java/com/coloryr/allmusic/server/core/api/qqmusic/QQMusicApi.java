@@ -46,6 +46,8 @@ public class QQMusicApi implements IMusicApi {
     public static final String API_ID = "qqmusic";
 
     private static final String CONFIG_FILE_NAME = "qqmusic.json";
+    private static final String RELOGIN_TRIGGER_FILE_NAME = "qqmusic-relogin";
+    private static final long RELOGIN_TRIGGER_POLL_MILLIS = 2000L;
     private static final String MUSICU_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg";
     private static final String SEARCH_URL = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp";
     private static final String REFERER = "https://y.qq.com/";
@@ -77,6 +79,7 @@ public class QQMusicApi implements IMusicApi {
                 + ", cookie=" + (!isBlank(config.cookie))
                 + ", qrLogin=" + config.qrLogin);
         startQrLoginIfNeeded("startup");
+        startReloginWatcher();
     }
 
     @Override
@@ -398,7 +401,24 @@ public class QQMusicApi implements IMusicApi {
     }
 
     private void startQrLoginIfNeeded(String reason) {
-        if (!config.qrLogin || hasLoginCookie() || !loginBusy.compareAndSet(false, true)) {
+        startQrLogin(reason, false);
+    }
+
+    /**
+     * Starts the QR login flow on a background thread.
+     *
+     * @param force when true, starts even if a login cookie is already
+     *              configured (used to renew an expired login).
+     */
+    private void startQrLogin(String reason, boolean force) {
+        if (!config.qrLogin) {
+            return;
+        }
+        if (!force && hasLoginCookie()) {
+            return;
+        }
+        if (!loginBusy.compareAndSet(false, true)) {
+            logInfo("QQ Music QR login already in progress, ignored reason=" + reason);
             return;
         }
 
@@ -417,6 +437,43 @@ public class QQMusicApi implements IMusicApi {
         thread.setDaemon(true);
         thread.start();
         logInfo("QQ Music QR login started, reason=" + reason);
+    }
+
+    /**
+     * Watches for a trigger file next to qqmusic.json. Creating the file
+     * (for example with {@code touch qqmusic-relogin}) re-initiates the QR
+     * login flow without restarting the server, even when a (possibly
+     * expired) login cookie is already configured. The trigger file is
+     * deleted before the new flow starts.
+     */
+    private void startReloginWatcher() {
+        if (!config.qrLogin) {
+            return;
+        }
+
+        final File trigger = new File(config.configDirectory(), RELOGIN_TRIGGER_FILE_NAME);
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        if (trigger.isFile() && trigger.delete()) {
+                            startQrLogin("trigger-file", true);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    try {
+                        Thread.sleep(RELOGIN_TRIGGER_POLL_MILLIS);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }, "AllMusic-QQMusic-QRTrigger");
+        thread.setDaemon(true);
+        thread.start();
+        logInfo("QQ Music QR relogin trigger enabled, create this file to re-initiate: "
+                + trigger.getAbsolutePath());
     }
 
     private boolean hasLoginCookie() {

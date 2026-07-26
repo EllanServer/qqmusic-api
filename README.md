@@ -13,7 +13,7 @@ An AllMusic external API provider for QQ Music search, metadata lookup, and dire
 ./gradlew build
 ```
 
-Copy `build/libs/qqmusic-api-1.0-SNAPSHOT.jar` into AllMusic's `allmusic_server/api` directory.
+Copy `build/libs/qqmusic-api-<version>.jar` into AllMusic's `allmusic_server/api` directory.
 
 ## Configuration
 
@@ -36,6 +36,16 @@ On first load the provider creates `qqmusic.json` next to the API jar:
 For better coverage, paste a QQ Music web cookie from a logged-in browser. The provider can derive `uin` and `qqmusicKey` from the cookie when those values are present.
 
 When `qrLogin` is enabled and no login cookie is configured, the provider creates `qqmusic-login.html` and `qqmusic-login.png` next to `qqmusic.json`. Open the HTML file, scan the QR code with QQ, and the provider will save the QQ Music cookie back to `qqmusic.json` after login succeeds.
+
+### Re-initiating QR login
+
+The startup QR code expires after `qrLoginTimeoutSeconds`. To request a fresh QR code at any time — without restarting the server — create a file named `qqmusic-relogin` next to `qqmusic.json`:
+
+```bash
+touch allmusic_server/api/qqmusic-relogin
+```
+
+The provider watches for this file, deletes it, and starts a new QR login flow (regenerating `qqmusic-login.html` / `qqmusic-login.png`). This also works when a login cookie is already configured, so it can be used to renew an expired login.
 
 ## Playback
 
