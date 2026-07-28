@@ -2,3 +2,11 @@
 build/
 out/
 *.iml
+
+# Local QQ Music login credentials and QR test artifacts
+qqmusic-local-test/
+qqmusic.json
+qqmusic-login*.png
+qqmusic-login*.html
+qqmusic-login-status.log
+qqmusic-relogin

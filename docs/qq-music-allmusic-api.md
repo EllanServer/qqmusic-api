@@ -1,83 +1,84 @@
-# QQ Music API notes for AllMusic
+# QQ Music protocol notes for AllMusic
 
-This branch implements an AllMusic external API provider for QQ Music.
+## Integration contract
 
-## Feasibility
+`QQMusicApi` is the public AllMusic adapter and implements `IMusicApi`. Its API
+ID is `qqmusic`. All protocol, login, persistence, and parsing code is internal
+to the jar; no external process or local HTTP service is required.
 
-QQ Music's web endpoints can return direct CDN URLs for playable tracks:
+The provider intentionally supports songs only. AllMusic playlist import is not
+part of this implementation, and 1.x configuration fields are not migrated.
 
-- Search: `https://c.y.qq.com/soso/fcgi-bin/client_search_cp`
-- Song detail: `https://u.y.qq.com/cgi-bin/musicu.fcg` with `music.pf_song_detail_svr/get_song_detail_yqq`
-- Playback URL: `https://u.y.qq.com/cgi-bin/musicu.fcg` with `vkey.GetVkeyServer/CgiGetVkey`
+## Current endpoints
 
-The playable URL is usually an m4a or mp3 URL on QQ Music CDN, which fits AllMusic's existing client decoders. Unlike YouTube, this does not require clients to access Google domains.
+All JSON requests are sent to:
 
-## Playback Limits
+`https://u.y.qq.com/cgi-bin/musicu.fcg`
 
-QQ Music still enforces copyright, region, VIP, and login restrictions. Anonymous requests can play some tracks, but many songs return an empty `purl` with result codes such as `104003`.
+The modules used by version 2.0 are:
 
-For better coverage, configure a QQ Music web cookie exported from a logged-in browser:
+| Operation | Module | Method |
+| --- | --- | --- |
+| Search | `music.adaptor.SearchAdaptor` | `do_search_v2` |
+| Song detail | `music.pf_song_detail_svr` | `get_song_detail_yqq` |
+| Playback vkey | `music.vkey.GetVkey` | `UrlGetVkey` |
+| QQ login exchange | `QQConnectLogin.LoginServer` | `QQLogin` |
+| Credential refresh | `music.login.LoginServer` | `Login` |
 
-```json
-{
-  "uin": "0",
-  "qqmusicKey": "",
-  "cookie": "",
-  "qrLogin": true,
-  "qrLoginTimeoutSeconds": 120,
-  "qrLoginPollSeconds": 2,
-  "qualities": "m4a,128,320",
-  "searchLimit": 20,
-  "timeoutSeconds": 20
-}
-```
+The web request profile uses `ct=24`, `cv=4747474`, and
+`platform=yqq.json`. Authenticated calls add the canonical QQ Music cookies and
+the login fields required by the musicu protocol.
 
-`cookie` is treated as a secret. If it contains `uin` and `qqmusic_key`, the provider derives those fields automatically.
+## QQ QR login
 
-## QR Login
+The login sequence is:
 
-The provider includes a QQ Music QR login flow modeled after the lightweight ptlogin QR pattern used by projects such as NapCat, but it does not depend on NapCat or an NTQQ client.
+1. Request a QR image from QQ ptlogin and retain `qrsig`.
+2. Poll `ptqrlogin` using the hash33 token until the user confirms.
+3. Parse `uin` and `ptsigx` from the successful callback.
+4. Call `check_sig` without following redirects and collect `p_skey` from all
+   `Set-Cookie` headers.
+5. Submit the QQ OAuth authorization form and read `code` from its redirect.
+6. Exchange that code through `QQConnectLogin.LoginServer/QQLogin`.
+7. Atomically persist the credential only when `musicid` and `musickey` are
+   both complete.
 
-Set:
+The cookie parser handles multiple header fields and proxy-combined
+`Set-Cookie` values, including commas inside `Expires`. Diagnostics list cookie
+names only and never log cookie values, OAuth codes, or music keys.
 
-```json
-{
-  "qrLogin": true,
-  "qrLoginTimeoutSeconds": 120,
-  "qrLoginPollSeconds": 2
-}
-```
+If refresh metadata is present and the key approaches expiry, the provider uses
+the QQ Music login refresh module and atomically replaces the saved credential.
+An incomplete or failed refresh leaves the previous config file intact and
+starts a new QR flow when enabled.
 
-When no login cookie is configured, the provider requests a QR image from QQ's ptlogin service using QQ Music parameters:
+## Playback files
 
-- `appid=716027609`
-- `daid=383`
-- `pt_3rd_aid=100497308`
-- redirect target `https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https%3A%2F%2Fy.qq.com%2F`
-
-The QR image is written to `qqmusic-login.png`, and a browser-friendly `qqmusic-login.html` is written next to `qqmusic.json`. After the user scans and confirms login in QQ, the provider follows the login redirects, collects QQ Music cookies, derives `uin`/`qqmusicKey`, and saves the updated `qqmusic.json`.
-
-This is a server-side shared login. All players use the same QQ account capability. VIP, copyright, and region checks still apply to that account.
-
-### Re-initiating the QR flow
-
-The QR login flow otherwise only starts automatically at provider startup, and the QR code expires after `qrLoginTimeoutSeconds`. To start a new flow without restarting the server, create a `qqmusic-relogin` file next to `qqmusic.json` (e.g. `touch qqmusic-relogin`). A watcher thread deletes the trigger file and re-runs the QR login, regenerating `qqmusic-login.html` / `qqmusic-login.png`. The trigger works even when a login cookie is already configured, which allows renewing an expired login without editing `qqmusic.json`.
-
-## Quality
-
-The provider tries qualities in order:
-
-| Quality | File type |
+| Config value | QQ Music filename |
 | --- | --- |
-| `m4a` | `C400*.m4a` |
-| `128` | `M500*.mp3` |
-| `320` | `M800*.mp3` |
+| `m4a` | `C400<media_mid>.m4a` |
+| `128` | `M500<media_mid>.mp3` |
+| `320` | `M800<media_mid>.mp3` |
 
-The default `m4a,128,320` avoids unsupported formats and keeps AllMusic client compatibility.
+If QQ Music omits `media_mid`, its documented song-MID fallback is used. The
+first non-empty purl is joined with QQ Music's returned CDN domain. An empty
+purl is a normal permission result for unavailable, VIP, or region-restricted
+content and is returned to AllMusic as no playable URL.
 
-## Open-source references
+## Reference boundary
 
-- `jsososo/QQMusicApi`: reference implementation for search, song detail, and vkey URL generation.
-- `Coloryr/netapi`: AllMusic external API shape used as the Java integration model.
-- `NapNeko/NapCatQQ`: reference for the QR-code login user experience.
-- `vikiboss/mioki`: reference for QQ ptlogin QR parameters and `qrsig` hash calculation.
+The behavior was checked against the public protocol implementation in
+`L-1124/QQMusicApi` and against AllMusic's public `IMusicApi` contract. This jar
+is an independent Java implementation: it does not bundle, import, execute, or
+copy the reference project's Python source.
+
+## Verification
+
+The automated suite covers AllMusic argument parsing, current search/detail
+payloads, vkey filename generation, request construction, credential boundaries,
+OAuth callbacks, and combined `Set-Cookie` parsing. The local smoke runner also
+checks real search, metadata, and playback URL resolution:
+
+```bash
+./gradlew runSmokeTest -PqqmusicTestConfig=/path/to/qqmusic.json
+```
