@@ -1,52 +1,71 @@
-# QQMusic API for AllMusic
+# QQ Music API for AllMusic
 
-An AllMusic external API provider for QQ Music search, metadata lookup, and direct m4a/mp3 playback URLs.
+A pure Java AllMusic external API provider for QQ Music. The provider implements
+`IMusicApi`, registers as `qqmusic`, and supplies song search, metadata, covers,
+and direct QQ Music CDN playback URLs.
 
-## Contents
-
-- [`docs/qq-music-allmusic-api.md`](docs/qq-music-allmusic-api.md): feasibility notes, cookie configuration, quality options, and open-source references.
-- [`src/main/java/com/coloryr/allmusic/server/core/api/qqmusic/QQMusicApi.java`](src/main/java/com/coloryr/allmusic/server/core/api/qqmusic/QQMusicApi.java): an `IMusicApi` implementation for QQ Music search, metadata lookup, and vkey playback URL resolving.
+Version 2.0 is a clean protocol rewrite. It does not run Python, open a sidecar
+port, or accept the 1.x top-level cookie configuration.
 
 ## Build
 
 ```bash
-./gradlew build
+./gradlew clean build
 ```
 
-Copy `build/libs/qqmusic-api-<version>.jar` into AllMusic's `allmusic_server/api` directory.
+The output is `build/libs/qqmusic-api-2.0.0.jar`. Copy it into the server's
+AllMusic external API directory, which is `plugins/allmusic/api/` on the target
+installation. AllMusic discovers API jars at startup, so loading a newly copied
+jar requires an AllMusic/server restart.
 
 ## Configuration
 
-On first load the provider creates `qqmusic.json` next to the API jar:
+On first load, `qqmusic.json` is created next to the API jar:
 
 ```json
 {
-  "uin": "0",
-  "qqmusicKey": "",
-  "cookie": "",
+  "credential": {
+    "openid": "",
+    "refresh_token": "",
+    "access_token": "",
+    "expired_at": 0,
+    "musicid": "0",
+    "musickey": "",
+    "unionid": "",
+    "str_musicid": "0",
+    "refresh_key": "",
+    "musickeyCreateTime": 0,
+    "keyExpiresIn": 0,
+    "loginType": 0
+  },
   "qrLogin": true,
   "qrLoginTimeoutSeconds": 120,
   "qrLoginPollSeconds": 2,
   "qualities": "m4a,128,320",
   "searchLimit": 20,
-  "timeoutSeconds": 20
+  "timeoutSeconds": 20,
+  "autoRefresh": true
 }
 ```
 
-For better coverage, paste a QQ Music web cookie from a logged-in browser. The provider can derive `uin` and `qqmusicKey` from the cookie when those values are present.
+When no complete credential exists, the provider writes `qqmusic-login.png`
+and `qqmusic-login.html` beside the config. Scan the code with QQ and confirm
+the login. The config is updated only after QQ Music returns both a non-zero
+`musicid` and a `musickey`.
 
-When `qrLogin` is enabled and no login cookie is configured, the provider creates `qqmusic-login.html` and `qqmusic-login.png` next to `qqmusic.json`. Open the HTML file, scan the QR code with QQ, and the provider will save the QQ Music cookie back to `qqmusic.json` after login succeeds.
+To request another QR code without restarting, create an empty file named
+`qqmusic-relogin` beside `qqmusic.json`. The watcher consumes the trigger and
+regenerates the login files.
 
-### Re-initiating QR login
-
-The startup QR code expires after `qrLoginTimeoutSeconds`. To request a fresh QR code at any time — without restarting the server — create a file named `qqmusic-relogin` next to `qqmusic.json`:
-
-```bash
-touch allmusic_server/api/qqmusic-relogin
-```
-
-The provider watches for this file, deletes it, and starts a new QR login flow (regenerating `qqmusic-login.html` / `qqmusic-login.png`). This also works when a login cookie is already configured, so it can be used to renew an expired login.
+The credential file contains account secrets. Do not publish it or include it
+in support archives.
 
 ## Playback
 
-`getPlayUrl` asks QQ Music's vkey endpoint for m4a/mp3 URLs and hands the CDN URL to AllMusic's existing player path. QQ Music may still return no playable URL for VIP, region-locked, or otherwise restricted tracks unless the configured account has access.
+The provider tries `m4a`, 128 kbps MP3, and 320 kbps MP3 in configured order.
+QQ Music still enforces account, VIP, copyright, and region restrictions. A
+restricted track can therefore search successfully while returning no playable
+URL for the configured account.
+
+See [`docs/qq-music-allmusic-api.md`](docs/qq-music-allmusic-api.md) for protocol
+and maintenance notes.
