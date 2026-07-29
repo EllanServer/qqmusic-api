@@ -2,9 +2,9 @@
 
 A pure Java AllMusic external API provider for QQ Music. The provider implements
 `IMusicApi`, registers as `qqmusic`, and supplies song search, metadata, covers,
-and direct QQ Music CDN playback URLs.
+direct QQ Music CDN playback URLs, and synchronized QQ Music lyrics.
 
-Version 2.0 is a clean protocol rewrite. It does not run Python, open a sidecar
+Version 2.x is a clean protocol rewrite. It does not run Python, open a sidecar
 port, or accept the 1.x top-level cookie configuration.
 
 ## Build
@@ -13,7 +13,7 @@ port, or accept the 1.x top-level cookie configuration.
 ./gradlew clean build
 ```
 
-The output is `build/libs/qqmusic-api-2.0.0.jar`. Copy it into the server's
+The output is `build/libs/qqmusic-api-2.1.0.jar`. Copy it into the server's
 AllMusic external API directory, which is `plugins/allmusic/api/` on the target
 installation. AllMusic discovers API jars at startup, so loading a newly copied
 jar requires an AllMusic/server restart.
@@ -66,6 +66,13 @@ The provider tries `m4a`, 128 kbps MP3, and 320 kbps MP3 in configured order.
 QQ Music still enforces account, VIP, copyright, and region restrictions. A
 restricted track can therefore search successfully while returning no playable
 URL for the configured account.
+
+## Lyrics
+
+The provider requests encrypted QRC from `GetPlayLyricInfo` and decodes it in
+Java. Word-timed QRC is converted to AllMusic KTV progress; ordinary timed LRC
+is retained as line lyrics, and translation is matched to the closest original
+line. Romanization is used only when no translation is available.
 
 See [`docs/qq-music-allmusic-api.md`](docs/qq-music-allmusic-api.md) for protocol
 and maintenance notes.

@@ -47,6 +47,35 @@ final class QQMusicClient {
         return QQMusicTrack.fromJson(QQMusicSupport.object(data, "track_info"));
     }
 
+    JsonObject getLyrics(String songMid) throws IOException {
+        return callData(
+                "music.musichallSong.PlayLyricInfo",
+                "GetPlayLyricInfo",
+                lyricParam(songMid),
+                config.credential(),
+                null
+        );
+    }
+
+    static JsonObject lyricParam(String songMid) {
+        JsonObject param = new JsonObject();
+        param.addProperty("crypt", 1);
+        // PlayLyricInfo still selects its response shape with the desktop
+        // protocol version even when musicu itself uses the web comm block.
+        param.addProperty("ct", 19);
+        param.addProperty("cv", 2111);
+        param.addProperty("lrc_t", 0);
+        param.addProperty("qrc", 1);
+        param.addProperty("qrc_t", 0);
+        param.addProperty("roma", 1);
+        param.addProperty("roma_t", 0);
+        param.addProperty("songMid", songMid);
+        param.addProperty("trans", 1);
+        param.addProperty("trans_t", 0);
+        param.addProperty("type", 0);
+        return param;
+    }
+
     String getPlayUrl(QQMusicTrack track) throws IOException {
         for (String configured : config.qualityList()) {
             QQMusicTrack.Quality quality = QQMusicTrack.Quality.fromConfig(configured);

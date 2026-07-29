@@ -113,7 +113,23 @@ public final class QQMusicApi implements IMusicApi {
 
     @Override
     public LyricSave getLyric(String id) {
-        return new LyricSave();
+        final String songMid = normalizeSongMid(id);
+        if (songMid == null) {
+            return new LyricSave();
+        }
+        LyricSave result = withBusy(new Operation<LyricSave>() {
+            @Override
+            public LyricSave run() throws Exception {
+                return QQMusicLyricParser.parse(client.getLyrics(songMid));
+            }
+        });
+        if (result == null) {
+            return new LyricSave();
+        }
+        if (!result.isHaveLyric()) {
+            QQMusicSupport.logInfo("QQ Music returned no timed lyrics for " + songMid);
+        }
+        return result;
     }
 
     @Override
