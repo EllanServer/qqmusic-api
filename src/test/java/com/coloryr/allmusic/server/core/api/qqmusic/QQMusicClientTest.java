@@ -42,6 +42,19 @@ class QQMusicClientTest {
     }
 
     @Test
+    void requestsEncryptedQrcTranslationAndRomanizationBySongMid() {
+        JsonObject param = QQMusicClient.lyricParam("001Bbywq2gicae");
+
+        assertEquals("001Bbywq2gicae", param.get("songMid").getAsString());
+        assertEquals(19, param.get("ct").getAsInt());
+        assertEquals(2111, param.get("cv").getAsInt());
+        assertEquals(1, param.get("crypt").getAsInt());
+        assertEquals(1, param.get("qrc").getAsInt());
+        assertEquals(1, param.get("trans").getAsInt());
+        assertEquals(1, param.get("roma").getAsInt());
+    }
+
+    @Test
     void addsAuthenticatedCommFieldsWithoutSerializingRefreshSecrets() throws Exception {
         QQMusicClient client = clientWithConfig();
         QQMusicCredential credential = new QQMusicCredential(

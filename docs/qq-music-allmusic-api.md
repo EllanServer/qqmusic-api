@@ -15,13 +15,14 @@ All JSON requests are sent to:
 
 `https://u.y.qq.com/cgi-bin/musicu.fcg`
 
-The modules used by version 2.0 are:
+The modules used by version 2.1 are:
 
 | Operation | Module | Method |
 | --- | --- | --- |
 | Search | `music.adaptor.SearchAdaptor` | `do_search_v2` |
 | Song detail | `music.pf_song_detail_svr` | `get_song_detail_yqq` |
 | Playback vkey | `music.vkey.GetVkey` | `UrlGetVkey` |
+| Lyrics | `music.musichallSong.PlayLyricInfo` | `GetPlayLyricInfo` |
 | QQ login exchange | `QQConnectLogin.LoginServer` | `QQLogin` |
 | Credential refresh | `music.login.LoginServer` | `Login` |
 
@@ -65,19 +66,30 @@ first non-empty purl is joined with QQ Music's returned CDN domain. An empty
 purl is a normal permission result for unavailable, VIP, or region-restricted
 content and is returned to AllMusic as no playable URL.
 
+## Lyric conversion
+
+The lyric request asks QQ Music for encrypted QRC, translation, and
+romanization using the song MID. Cloud QRC is decrypted with its historical
+3DES-compatible variant and inflated as UTF-8. QRC line and word timestamps
+become AllMusic `LyricSave` and `KtvLyricObj` timelines. When QQ Music returns
+only ordinary LRC, its line timestamps are preserved and the client provides
+smooth line-level progress. Translation timestamps are matched within a narrow
+window to tolerate the small offsets present in QQ Music data.
+
 ## Reference boundary
 
-The behavior was checked against the public protocol implementation in
-`L-1124/QQMusicApi` and against AllMusic's public `IMusicApi` contract. This jar
-is an independent Java implementation: it does not bundle, import, execute, or
-copy the reference project's Python source.
+The behavior was checked against the public protocol implementations in
+`L-1124/QQMusicApi` and `chenmozhijin/LDDC`, and against AllMusic's public
+`IMusicApi` contract. This jar is an independent Java implementation: it does
+not bundle, import, execute, or copy either reference project's Python source.
 
 ## Verification
 
 The automated suite covers AllMusic argument parsing, current search/detail
-payloads, vkey filename generation, request construction, credential boundaries,
-OAuth callbacks, and combined `Set-Cookie` parsing. The local smoke runner also
-checks real search, metadata, and playback URL resolution:
+payloads, QRC decryption and timeline conversion, vkey filename generation,
+request construction, credential boundaries, OAuth callbacks, and combined
+`Set-Cookie` parsing. The local smoke runner also checks real search, metadata,
+playback URL resolution, and synchronized lyrics:
 
 ```bash
 ./gradlew runSmokeTest -PqqmusicTestConfig=/path/to/qqmusic.json
