@@ -2,6 +2,12 @@ package com.coloryr.allmusic.server.core.api.qqmusic;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -39,7 +45,8 @@ final class QQMusicLogin {
     }
 
     void start() {
-        if (config.autoRefresh && config.credential().expiresSoon()) {
+        config.reloadIfChanged();
+        if (config.autoRefresh() && config.credential().expiresSoon()) {
             startRefresh();
         } else if (!config.credential().isComplete()) {
             startQrLogin("startup", false);
@@ -48,8 +55,9 @@ final class QQMusicLogin {
     }
 
     void ensureFresh() {
+        config.reloadIfChanged();
         QQMusicCredential credential = config.credential();
-        if (config.autoRefresh && credential.expiresSoon()) {
+        if (config.autoRefresh() && credential.expiresSoon()) {
             refreshNow();
         }
     }
@@ -70,6 +78,7 @@ final class QQMusicLogin {
             return;
         }
         try {
+            config.reloadIfChanged();
             QQMusicCredential current = config.credential();
             if (!current.canRefresh()) {
                 QQMusicSupport.logInfo("QQ Music credential needs a new QR login");
@@ -88,7 +97,7 @@ final class QQMusicLogin {
     }
 
     private void startQrLogin(final String reason, boolean force) {
-        if (!config.qrLogin || (!force && config.credential().isComplete())) {
+        if (!config.qrLogin() || (!force && config.credential().isComplete())) {
             return;
         }
         if (!loginBusy.compareAndSet(false, true)) {
@@ -113,13 +122,25 @@ final class QQMusicLogin {
     }
 
     private void performQrLogin() throws Exception {
+        QQMusicCredential startingCredential = config.credential();
         QrCode qrCode = requestQrCode();
         writeQrFiles(qrCode.image);
         QQMusicHttp.CookieJar cookies = qrCode.cookies;
-        long endAt = System.currentTimeMillis() + config.qrLoginTimeoutSeconds * 1000L;
+        long endAt = System.currentTimeMillis() + config.qrLoginTimeoutSeconds() * 1000L;
         String lastStatus = "";
 
         while (System.currentTimeMillis() < endAt) {
+            config.reloadIfChanged();
+            if (!config.qrLogin()) {
+                QQMusicSupport.logInfo("QQ Music QR login stopped by config reload");
+                return;
+            }
+            QQMusicCredential activeCredential = config.credential();
+            if (activeCredential.isComplete()
+                    && !sameCredential(startingCredential, activeCredential)) {
+                QQMusicSupport.logInfo("QQ Music QR login stopped because a new credential was hot-loaded");
+                return;
+            }
             QrStatus status = checkQrCode(qrCode.qrSig, cookies);
             if ("0".equals(status.code)) {
                 String authorizationCode = completeQQAuthorization(status.callbackUrl, cookies);
@@ -144,7 +165,7 @@ final class QQMusicLogin {
                 }
                 lastStatus = status.code;
             }
-            Thread.sleep(config.qrLoginPollSeconds * 1000L);
+            Thread.sleep(config.qrLoginPollSeconds() * 1000L);
         }
         throw new IOException("QR login timeout");
     }
@@ -272,29 +293,116 @@ final class QQMusicLogin {
     }
 
     private void startReloginWatcher() {
-        if (!config.qrLogin) {
-            return;
-        }
         final File trigger = new File(config.directory(), RELOGIN_TRIGGER);
+        try {
+            final WatchService watcher = FileSystems.getDefault().newWatchService();
+            config.directory().toPath().register(
+                    watcher,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_MODIFY,
+                    StandardWatchEventKinds.ENTRY_DELETE
+            );
+            consumeReloginTrigger(trigger);
+            startEventWatcher(watcher, trigger);
+            QQMusicSupport.logInfo("QQ Music config hot-reload watcher: "
+                    + config.file.getAbsolutePath());
+            QQMusicSupport.logInfo("QQ Music QR relogin trigger: " + trigger.getAbsolutePath());
+        } catch (Exception e) {
+            QQMusicSupport.logError("QQ Music file watcher unavailable; using low-frequency fallback: "
+                    + e.getMessage());
+            startPollingWatcher(trigger);
+        }
+    }
+
+    private void startEventWatcher(final WatchService watcher, final File trigger) {
         Thread thread = new Thread(new Runnable() {
             @Override
             public void run() {
                 while (!Thread.currentThread().isInterrupted()) {
                     try {
-                        if (trigger.isFile() && trigger.delete()) {
-                            startQrLogin("trigger-file", true);
+                        WatchKey key = watcher.take();
+                        boolean configChanged = false;
+                        boolean triggerChanged = false;
+                        boolean overflow = false;
+                        for (WatchEvent<?> event : key.pollEvents()) {
+                            if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                                overflow = true;
+                                continue;
+                            }
+                            Object context = event.context();
+                            if (!(context instanceof Path)) {
+                                continue;
+                            }
+                            String name = ((Path) context).getFileName().toString();
+                            if (config.file.getName().equals(name)) {
+                                configChanged = true;
+                            } else if (RELOGIN_TRIGGER.equals(name)) {
+                                triggerChanged = true;
+                            }
                         }
-                        Thread.sleep(TRIGGER_POLL_MILLIS);
+                        if ((configChanged || overflow) && config.reloadNow()) {
+                            handleConfigReload();
+                        }
+                        if (triggerChanged || overflow) {
+                            consumeReloginTrigger(trigger);
+                        }
+                        if (!key.reset()) {
+                            return;
+                        }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                    } catch (Throwable ignored) {
+                    } catch (Throwable e) {
+                        QQMusicSupport.logError("QQ Music file watcher event failed: " + e.getMessage());
                     }
                 }
             }
-        }, "AllMusic-QQMusic-QRTrigger");
+        }, "AllMusic-QQMusic-ConfigWatch");
         thread.setDaemon(true);
         thread.start();
-        QQMusicSupport.logInfo("QQ Music QR relogin trigger: " + trigger.getAbsolutePath());
+    }
+
+    private void startPollingWatcher(final File trigger) {
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                        if (config.reloadNow()) {
+                            handleConfigReload();
+                        }
+                        consumeReloginTrigger(trigger);
+                        Thread.sleep(TRIGGER_POLL_MILLIS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Throwable e) {
+                        QQMusicSupport.logError("QQ Music fallback watcher failed: " + e.getMessage());
+                    }
+                }
+            }
+        }, "AllMusic-QQMusic-ConfigPoll");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void handleConfigReload() {
+        QQMusicCredential credential = config.credential();
+        if (config.autoRefresh() && credential.expiresSoon()) {
+            startRefresh();
+        } else if (config.qrLogin() && !credential.isComplete()) {
+            startQrLogin("config-reload", false);
+        }
+    }
+
+    private void consumeReloginTrigger(File trigger) {
+        if (trigger.isFile() && trigger.delete()) {
+            startQrLogin("trigger-file", true);
+        }
+    }
+
+    private static boolean sameCredential(QQMusicCredential first, QQMusicCredential second) {
+        return first != null && second != null
+                && first.musicId.equals(second.musicId)
+                && first.musicKey.equals(second.musicKey);
     }
 
     static QrStatus parseCallback(String body) throws IOException {
