@@ -8,7 +8,7 @@ import com.coloryr.allmusic.server.core.objs.music.SongInfoObj;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -25,7 +25,7 @@ public final class QQMusicApi implements IMusicApi {
     private final QQMusicConfig config;
     private final QQMusicClient client;
     private final QQMusicLogin login;
-    private final AtomicBoolean busy = new AtomicBoolean(false);
+    private final QQMusicRequestTracker requests = new QQMusicRequestTracker();
 
     public QQMusicApi() {
         this(QQMusicConfig.load());
@@ -150,7 +150,7 @@ public final class QQMusicApi implements IMusicApi {
 
     @Override
     public boolean isBusy() {
-        return busy.get();
+        return requests.isBusy();
     }
 
     @Override
@@ -202,18 +202,18 @@ public final class QQMusicApi implements IMusicApi {
         return result.length() == 0 ? null : result.toString();
     }
 
-    private <T> T withBusy(Operation<T> operation) {
-        if (!busy.compareAndSet(false, true)) {
-            return null;
-        }
+    private <T> T withBusy(final Operation<T> operation) {
         try {
-            config.reloadIfChanged();
-            return operation.run();
+            return requests.execute(new Callable<T>() {
+                @Override
+                public T call() throws Exception {
+                    config.reloadIfChanged();
+                    return operation.run();
+                }
+            });
         } catch (Exception e) {
             QQMusicSupport.logError("QQ Music request failed: " + e.getMessage());
             return null;
-        } finally {
-            busy.set(false);
         }
     }
 

@@ -13,7 +13,7 @@ port, or accept the 1.x top-level cookie configuration.
 ./gradlew clean build
 ```
 
-The output is `build/libs/qqmusic-api-2.2.0.jar`. Copy it into the server's
+The output is `build/libs/qqmusic-api-2.2.1.jar`. Copy it into the server's
 AllMusic external API directory, which is `plugins/allmusic/api/` on the target
 installation. AllMusic discovers API jars at startup, so loading a newly copied
 jar requires an AllMusic/server restart.
@@ -82,6 +82,10 @@ The provider tries `m4a`, 128 kbps MP3, and 320 kbps MP3 in configured order.
 QQ Music still enforces account, VIP, copyright, and region restrictions. A
 restricted track can therefore search successfully while returning no playable
 URL for the configured account.
+
+Search, metadata, playback URL, and lyric requests may overlap. The provider
+tracks the number of active requests for AllMusic's `isBusy()` signal without
+discarding a playback request merely because another player is searching.
 
 ## Lyrics
 
