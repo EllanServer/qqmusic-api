@@ -71,6 +71,13 @@ overwrite the newly loaded account. Network timeout, result limit, quality
 order, QR settings, refresh behavior, and credentials all participate in the
 same hot-reload snapshot.
 
+## Request concurrency
+
+AllMusic can search for one player while its playback thread resolves another
+track's URL or lyrics. These operations execute concurrently. An atomic request
+counter implements `isBusy()` for AllMusic's idle-playback check, but an active
+request never causes another request to return an empty result.
+
 ## Playback files
 
 | Config value | QQ Music filename |
