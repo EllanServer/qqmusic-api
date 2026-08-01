@@ -21,10 +21,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class QQMusicHttp {
-    private final int timeoutMillis;
+    private final QQMusicConfig config;
+    private final int fallbackTimeoutMillis;
 
     QQMusicHttp(int timeoutSeconds) {
-        this.timeoutMillis = Math.max(5, timeoutSeconds) * 1000;
+        this.config = null;
+        this.fallbackTimeoutMillis = Math.max(5, timeoutSeconds) * 1000;
+    }
+
+    QQMusicHttp(QQMusicConfig config) {
+        this.config = config;
+        this.fallbackTimeoutMillis = 20_000;
     }
 
     Response get(String url, Map<String, String> headers) throws IOException {
@@ -57,6 +64,9 @@ final class QQMusicHttp {
             connection = (HttpURLConnection) new URL(url).openConnection();
             connection.setRequestMethod(method);
             connection.setInstanceFollowRedirects(followRedirects);
+            int timeoutMillis = config == null
+                    ? fallbackTimeoutMillis
+                    : Math.max(5, config.timeoutSeconds()) * 1000;
             connection.setConnectTimeout(timeoutMillis);
             connection.setReadTimeout(timeoutMillis);
             connection.setRequestProperty("User-Agent", QQMusicSupport.USER_AGENT);

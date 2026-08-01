@@ -23,7 +23,7 @@ final class QQMusicClient {
 
     QQMusicClient(QQMusicConfig config) {
         this.config = config;
-        this.http = new QQMusicHttp(config.timeoutSeconds);
+        this.http = new QQMusicHttp(config);
     }
 
     QQMusicHttp http() {
@@ -164,7 +164,7 @@ final class QQMusicClient {
         JsonObject param = new JsonObject();
         param.addProperty("searchid", searchId());
         param.addProperty("search_type", 100);
-        param.addProperty("page_num", config.searchLimit);
+        param.addProperty("page_num", config.searchLimit());
         param.addProperty("query", query);
         param.addProperty("page_id", 1);
         param.addProperty("highlight", 0);
@@ -317,7 +317,7 @@ final class QQMusicClient {
                     QQMusicTrack track = QQMusicTrack.fromJson(value.getAsJsonObject());
                     if (track != null && !QQMusicSupport.isBlank(track.songMid)) {
                         unique.put(track.songMid, track);
-                        if (unique.size() >= config.searchLimit) {
+                        if (unique.size() >= config.searchLimit()) {
                             break;
                         }
                     }

@@ -13,7 +13,7 @@ port, or accept the 1.x top-level cookie configuration.
 ./gradlew clean build
 ```
 
-The output is `build/libs/qqmusic-api-2.1.0.jar`. Copy it into the server's
+The output is `build/libs/qqmusic-api-2.2.0.jar`. Copy it into the server's
 AllMusic external API directory, which is `plugins/allmusic/api/` on the target
 installation. AllMusic discovers API jars at startup, so loading a newly copied
 jar requires an AllMusic/server restart.
@@ -59,6 +59,22 @@ regenerates the login files.
 
 The credential file contains account secrets. Do not publish it or include it
 in support archives.
+
+### Hot reload
+
+Version 2.2 watches the directory with Java's file-system event API. Creating,
+replacing, or modifying `qqmusic.json` reloads settings and credentials without
+restarting AllMusic or the server. A valid replacement is installed as one
+immutable in-memory snapshot; incomplete writes and invalid JSON are rejected,
+so the last working credential remains active.
+
+The watcher blocks while idle and does not poll the file. Music requests have
+only an in-memory snapshot read on their normal path. As a recovery path for a
+missed operating-system event, an active request may perform one metadata-only
+check at most once every 30 seconds; JSON is parsed only when the file changed.
+
+Replacing the API jar itself still requires one AllMusic/server restart. After
+version 2.2 is loaded once, future `qqmusic.json` updates are hot-reloaded.
 
 ## Playback
 

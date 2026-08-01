@@ -15,7 +15,7 @@ All JSON requests are sent to:
 
 `https://u.y.qq.com/cgi-bin/musicu.fcg`
 
-The modules used by version 2.1 are:
+The modules used by version 2.2 are:
 
 | Operation | Module | Method |
 | --- | --- | --- |
@@ -53,6 +53,24 @@ the QQ Music login refresh module and atomically replaces the saved credential.
 An incomplete or failed refresh leaves the previous config file intact and
 starts a new QR flow when enabled.
 
+## Configuration reload
+
+`qqmusic.json` remains the provider's configuration and credential boundary.
+The provider registers a Java `WatchService` for create, modify, and replace
+events in the configuration directory. A changed document is parsed into a new
+immutable snapshot and published only after the complete JSON validates. A
+broken or partially uploaded document never replaces the active snapshot.
+
+The request path does not read or parse the file. It reads volatile snapshot
+fields and uses a metadata-only check, globally limited to once per 30 seconds,
+as recovery for a missed file-system event. The fallback polling loop runs only
+when the platform cannot create a file-system watcher.
+
+Credential changes also stop an older in-progress QR flow before that flow can
+overwrite the newly loaded account. Network timeout, result limit, quality
+order, QR settings, refresh behavior, and credentials all participate in the
+same hot-reload snapshot.
+
 ## Playback files
 
 | Config value | QQ Music filename |
@@ -87,9 +105,10 @@ not bundle, import, execute, or copy either reference project's Python source.
 
 The automated suite covers AllMusic argument parsing, current search/detail
 payloads, QRC decryption and timeline conversion, vkey filename generation,
-request construction, credential boundaries, OAuth callbacks, and combined
-`Set-Cookie` parsing. The local smoke runner also checks real search, metadata,
-playback URL resolution, and synchronized lyrics:
+request construction, credential boundaries, safe hot reload, invalid-file
+rollback, OAuth callbacks, and combined `Set-Cookie` parsing. The local smoke
+runner also checks real search, metadata, playback URL resolution, and
+synchronized lyrics:
 
 ```bash
 ./gradlew runSmokeTest -PqqmusicTestConfig=/path/to/qqmusic.json

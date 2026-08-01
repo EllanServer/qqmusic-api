@@ -37,9 +37,9 @@ public final class QQMusicApi implements IMusicApi {
         this.login = new QQMusicLogin(config, client);
         QQMusicSupport.logInfo("QQ Music API loaded, credential="
                 + config.credential().isComplete()
-                + ", qualities=" + config.qualities
-                + ", searchLimit=" + config.searchLimit
-                + ", qrLogin=" + config.qrLogin);
+                + ", qualities=" + config.qualities()
+                + ", searchLimit=" + config.searchLimit()
+                + ", qrLogin=" + config.qrLogin());
         login.start();
     }
 
@@ -207,6 +207,7 @@ public final class QQMusicApi implements IMusicApi {
             return null;
         }
         try {
+            config.reloadIfChanged();
             return operation.run();
         } catch (Exception e) {
             QQMusicSupport.logError("QQ Music request failed: " + e.getMessage());
