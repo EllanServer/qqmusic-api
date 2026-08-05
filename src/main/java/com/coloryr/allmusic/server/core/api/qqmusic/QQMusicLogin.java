@@ -27,6 +27,9 @@ final class QQMusicLogin {
     private static final String THIRD_APP_ID = "100497308";
     private static final String LOGIN_JUMP = "https://graph.qq.com/oauth2.0/login_jump";
     private static final String LOGIN_REDIRECT = "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/";
+    // ptlogin2 requires a xui referer; this bare URL is what the reference
+    // implementation (L-1124/QQMusicApi) sends for both ptqrshow and ptqrlogin.
+    private static final String XUI_REFERER = "https://xui.ptlogin2.qq.com/";
     private static final String CHECK_SIG_URL = "https://ssl.ptlogin2.graph.qq.com/check_sig";
     private static final String AUTHORIZE_URL = "https://graph.qq.com/oauth2.0/authorize";
     private static final Pattern CALLBACK = Pattern.compile("ptuiCB\\((.*)\\)");
@@ -150,10 +153,10 @@ final class QQMusicLogin {
                 return;
             }
             if ("65".equals(status.code)) {
-                throw new IOException("QR code expired");
+                throw new IOException("QR code expired" + messageSuffix(status));
             }
             if ("68".equals(status.code)) {
-                throw new IOException("QR login refused");
+                throw new IOException("QR login refused" + messageSuffix(status));
             }
             if (!status.code.equals(lastStatus)) {
                 if ("67".equals(status.code)) {
@@ -161,7 +164,7 @@ final class QQMusicLogin {
                 } else if ("66".equals(status.code)) {
                     QQMusicSupport.logInfo("QQ Music QR waiting for scan");
                 } else {
-                    QQMusicSupport.logInfo("QQ Music QR status=" + status.code);
+                    QQMusicSupport.logInfo("QQ Music QR status=" + status.code + messageSuffix(status));
                 }
                 lastStatus = status.code;
             }
@@ -171,15 +174,16 @@ final class QQMusicLogin {
     }
 
     private QrCode requestQrCode() throws IOException {
+        // Mirror the reference implementation (L-1124/QQMusicApi) exactly:
+        // no u1 parameter, bare xui referer.
         String url = "https://ssl.ptlogin2.qq.com/ptqrshow"
                 + "?appid=" + APP_ID
                 + "&e=2&l=M&s=3&d=72&v=4"
                 + "&t=" + Math.random()
                 + "&daid=" + DAID
-                + "&pt_3rd_aid=" + THIRD_APP_ID
-                + "&u1=" + QQMusicSupport.encode(LOGIN_JUMP);
+                + "&pt_3rd_aid=" + THIRD_APP_ID;
         QQMusicHttp.Response response = http.get(url, QQMusicHttp.headers(
-                "Referer", loginReferer()
+                "Referer", XUI_REFERER
         ));
         if (!response.isSuccess()) {
             throw new IOException("QQ QR request failed, HTTP " + response.status);
@@ -206,7 +210,7 @@ final class QQMusicLogin {
                 + "&has_onekey=1";
         QQMusicHttp.Response response = http.get(url, QQMusicHttp.headers(
                 "Cookie", cookies.header(),
-                "Referer", "https://xui.ptlogin2.qq.com/"
+                "Referer", XUI_REFERER
         ));
         if (!response.isSuccess()) {
             throw new IOException("QQ QR status failed, HTTP " + response.status);
@@ -408,7 +412,8 @@ final class QQMusicLogin {
     static QrStatus parseCallback(String body) throws IOException {
         Matcher callback = CALLBACK.matcher(body == null ? "" : body);
         if (!callback.find()) {
-            throw new IOException("Unexpected QQ QR status response");
+            throw new IOException("Unexpected QQ QR status response: "
+                    + QQMusicSupport.limit(body == null ? "" : body, 200));
         }
         Matcher valuesMatcher = CALLBACK_VALUE.matcher(callback.group(1));
         List<String> values = new ArrayList<>();
@@ -421,17 +426,14 @@ final class QQMusicLogin {
         String callbackUrl = values.size() > 2
                 ? values.get(2).replace("\\/", "/").replace("\\x26", "&")
                 : "";
-        return new QrStatus(values.get(0), callbackUrl);
+        String message = values.size() > 4 ? values.get(4) : "";
+        return new QrStatus(values.get(0), callbackUrl, message);
     }
 
-    private static String loginReferer() throws IOException {
-        return "https://xui.ptlogin2.qq.com/cgi-bin/xlogin"
-                + "?appid=" + APP_ID
-                + "&style=20"
-                + "&s_url=" + QQMusicSupport.encode(LOGIN_REDIRECT)
-                + "&maskOpacity=60"
-                + "&daid=" + DAID
-                + "&target=self";
+    private static String messageSuffix(QrStatus status) {
+        return QQMusicSupport.isBlank(status.message)
+                ? ""
+                : ": " + status.message;
     }
 
     private static final class QrCode {
@@ -449,10 +451,16 @@ final class QQMusicLogin {
     static final class QrStatus {
         final String code;
         final String callbackUrl;
+        final String message;
 
         QrStatus(String code, String callbackUrl) {
+            this(code, callbackUrl, "");
+        }
+
+        QrStatus(String code, String callbackUrl, String message) {
             this.code = code == null ? "" : code;
             this.callbackUrl = callbackUrl == null ? "" : callbackUrl;
+            this.message = message == null ? "" : message;
         }
     }
 }
